@@ -6,7 +6,7 @@ services:
     init: true                    # PID 1 reaps stray exec processes (health checks) instead of the postmaster
     environment:
       POSTGRES_USER: ${PGUSER:-lab}
-      POSTGRES_PASSWORD: ${PGPASSWORD:-lab}
+      POSTGRES_PASSWORD: ${PGPASSWORD:?copy .env.example to .env}
       POSTGRES_DB: ${PGDATABASE:-lab}
     ports:
       - "${PGPORT:-55433}:5432"

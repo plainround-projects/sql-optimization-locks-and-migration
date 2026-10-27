@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sql-optimization-locks-and-migration"
+version = "0.1.0"
+description = "Changing a busy PostgreSQL table without blocking it: lock queues, safe migrations, a concurrent index, NOT NULL in three moves, and a plan flip."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Sumit Srivastava" }]
+dependencies = ["psycopg[binary]>=3.2,<4"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<10",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "import-linter>=2.0",
+    "pip-audit>=2.7",
+]
+
+[project.scripts]
+locks-lab-run = "locks_lab.interfaces.run_cli:main"
+locks-lab-load = "locks_lab.interfaces.load_cli:main"
+locks-lab-health = "locks_lab.interfaces.health_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "N", "C4", "RUF", "PT", "D100", "D101", "D103", "D104"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+
+# Test functions are named for the behavior they check; annotating every one adds noise, not safety.
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: needs PostgreSQL from docker-compose.yml with the seeded events table (make up db)",
+    "e2e: replays the lesson through the command-line program against PostgreSQL",
+]
+
+[tool.coverage.run]
+source = ["locks_lab"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.importlinter]
+root_package = "locks_lab"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layers: interfaces -> infrastructure -> application -> domain, never upward"
+type = "layers"
+layers = [
+    "locks_lab.interfaces",
+    "locks_lab.infrastructure",
+    "locks_lab.application",
+    "locks_lab.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain and application know nothing about PostgreSQL or threads"
+type = "forbidden"
+source_modules = ["locks_lab.domain", "locks_lab.application"]
+forbidden_modules = ["psycopg", "threading"]

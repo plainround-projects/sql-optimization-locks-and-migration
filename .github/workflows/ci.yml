@@ -1,20 +1,33 @@
 name: ci
+
 on: [push, pull_request]
 
 jobs:
-  test:
+  check:
+    name: Format, lint, types, import rules, unit tests with coverage, dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: make check
+      - run: make audit
+
+  integration:
+    name: Integration and end-to-end tests (PostgreSQL 18 service container)
     runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:18
-        env:
-          POSTGRES_USER: lab
-          POSTGRES_PASSWORD: lab
-          POSTGRES_DB: lab
         ports:
           - 5432:5432
+        env:
+          POSTGRES_USER: lab
+          POSTGRES_PASSWORD: ci-only-throwaway
+          POSTGRES_DB: lab
         options: >-
-          --health-cmd "pg_isready -U lab -d lab"
+          --health-cmd "pg_isready -h 127.0.0.1 -U lab -d lab"
           --health-interval 2s
           --health-timeout 3s
           --health-retries 30
@@ -22,8 +35,8 @@ jobs:
       PGHOST: localhost
       PGPORT: "5432"
       PGUSER: lab
-      PGPASSWORD: lab
       PGDATABASE: lab
+      PGPASSWORD: ci-only-throwaway
       ROWS: "1000000"
     steps:
       - uses: actions/checkout@v4
@@ -39,4 +52,4 @@ jobs:
       # The runner has a psql client; the service container is the database, so `make up` is not needed.
       # One million rows is enough for every lock effect and keeps the job short.
       - run: make db PSQL="psql -X -q -v ON_ERROR_STOP=1"
-      - run: make test
+      - run: make test-integration test-e2e
