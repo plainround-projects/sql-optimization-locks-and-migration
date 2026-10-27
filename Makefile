@@ -18,7 +18,7 @@ PSQL ?= docker compose exec -T db psql -X -q -v ON_ERROR_STOP=1 -U $(PGUSER) -d 
 .PHONY: help install env up db reset run measure load health lint format test test-integration test-e2e audit check docker-build psql down clean
 
 help: ## list the targets
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | sort
+	@grep -hE '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | sort
 
 $(STAMP): requirements-dev.lock pyproject.toml
 	$(PYTHON) -m venv $(VENV)
