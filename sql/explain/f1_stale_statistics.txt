@@ -1,14 +1,14 @@
-Limit  (cost=87016.25..87016.25 rows=1 width=16) (actual time=160.255..160.263 rows=100.00 loops=1)
-  Buffers: shared hit=56956
-  ->  Sort  (cost=87016.25..87016.25 rows=1 width=16) (actual time=160.254..160.257 rows=100.00 loops=1)
+Limit  (cost=87277.40..87277.40 rows=1 width=16) (actual time=758.359..758.371 rows=100.00 loops=1)
+  Buffers: shared hit=38455 read=18684
+  ->  Sort  (cost=87277.40..87277.40 rows=1 width=16) (actual time=758.355..758.360 rows=100.00 loops=1)
         Sort Key: created_at DESC
         Sort Method: top-N heapsort  Memory: 32kB
-        Buffers: shared hit=56956
-        ->  Seq Scan on events  (cost=0.00..87016.24 rows=1 width=16) (actual time=0.091..141.660 rows=150000.00 loops=1)
+        Buffers: shared hit=38455 read=18684
+        ->  Seq Scan on events  (cost=0.00..87277.39 rows=1 width=16) (actual time=153.866..724.996 rows=150000.00 loops=1)
               Filter: ((region = 'pacific'::text) AND (city = 'seattle'::text))
-              Rows Removed by Filter: 2450000
-              Buffers: shared hit=56956
+              Rows Removed by Filter: 2460839
+              Buffers: shared hit=38452 read=18684
 Planning:
-  Buffers: shared hit=11
-Planning Time: 0.088 ms
-Execution Time: 160.278 ms
+  Buffers: shared hit=31
+Planning Time: 0.737 ms
+Execution Time: 758.459 ms
