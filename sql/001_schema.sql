@@ -1,8 +1,8 @@
--- 001_schema.sql: DDL for the "Locks and migration" lab (PostgreSQL 18).
-DROP TABLE IF EXISTS events CASCADE;
-DROP TABLE IF EXISTS lab_meta;
+-- 001_schema.sql: DDL for the "Locks and migration" lab (PostgreSQL 18). Safe to run twice: IF NOT EXISTS
+-- throughout, one transaction.
+BEGIN;
 
-CREATE TABLE events (
+CREATE TABLE IF NOT EXISTS events (
   id         BIGSERIAL   PRIMARY KEY,
   device_id  BIGINT      NOT NULL,
   event_type TEXT        NOT NULL,
@@ -18,7 +18,9 @@ COMMENT ON COLUMN events.created_at IS 'Seed rows are September 2026; the load s
 
 -- The load script reads "recent events" with a predicate on created_at, so the table starts with this index.
 -- The lesson's index (device_id, created_at DESC) is a migration, not part of the baseline.
-CREATE INDEX idx_events_created_at ON events (created_at);
+CREATE INDEX IF NOT EXISTS idx_events_created_at ON events (created_at);
 
 -- Where the seed ended, so the lab can delete everything the load and the experiments added.
-CREATE TABLE lab_meta (key TEXT PRIMARY KEY, value BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS lab_meta (key TEXT PRIMARY KEY, value BIGINT NOT NULL);
+
+COMMIT;

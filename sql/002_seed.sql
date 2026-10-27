@@ -1,4 +1,5 @@
 -- 002_seed.sql: DML. :rows events (default 2,000,000), analyzed, with region and city independent.
+-- Safe to run twice: a table that already has rows is left alone (use `make reset` to start from nothing).
 -- Run as: psql -v rows=50000000 < sql/002_seed.sql   (the lesson's size)
 \if :{?rows}
 \else
@@ -7,7 +8,10 @@
 SELECT setseed(0.42);
 SET timezone = 'UTC';
 
+SELECT NOT EXISTS (SELECT 1 FROM events) AS events_empty \gset
+
 -- Loaded in chunks of 1,000,000 so a 50,000,000-row load does not need one huge transaction.
+\if :events_empty
 SELECT format($sql$
   INSERT INTO events (device_id, event_type, region, city, payload, created_at)
   SELECT 1 + floor(random() * 100000)::bigint,
@@ -24,7 +28,9 @@ $sql$, :rows, chunk_start, least(chunk_start + 999999, :rows)) AS statement
 FROM generate_series(1, :rows, 1000000) AS chunk_start
 \gexec
 
-INSERT INTO lab_meta VALUES ('seed_max_id', (SELECT max(id) FROM events));
+INSERT INTO lab_meta VALUES ('seed_max_id', (SELECT max(id) FROM events))
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+\endif
 VACUUM (ANALYZE) events;
 
 -- Recycle the seed's WAL into spare segments now, so the first big write later does not stall creating them.

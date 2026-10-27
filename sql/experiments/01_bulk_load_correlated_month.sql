@@ -12,4 +12,5 @@ SELECT 1 + floor(random() * 100000)::bigint,
        (ARRAY['seattle','portland','tacoma','spokane'])[1 + (n % 4)],
        jsonb_build_object('v', n % 100),
        timestamp '2026-10-01' + (n::numeric / 600000) * interval '30 days'
-FROM generate_series(1, 600000) AS n;
+FROM generate_series(1, 600000) AS n
+WHERE NOT EXISTS (SELECT 1 FROM events WHERE region = 'pacific');   -- repeatable: loads the month once
