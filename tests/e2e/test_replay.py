@@ -9,13 +9,16 @@ import pytest
 
 pytestmark = pytest.mark.e2e
 
+# A shared machine can take longer than the 5 s default to accept a connection while the replay runs.
+SLOW_MACHINE = {"PG_CONNECT_TIMEOUT_SECONDS": os.environ.get("PG_CONNECT_TIMEOUT_SECONDS", "30")}
+
 
 def program(module: str, *args: str, **env: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", f"locks_lab.interfaces.{module}", *args],
         capture_output=True,
         text=True,
-        env={**os.environ, **env},
+        env={**os.environ, **SLOW_MACHINE, **env},
         timeout=1800,
         check=False,
     )
