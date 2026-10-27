@@ -1,0 +1,16 @@
+pg_stat_activity, sessions waiting on a lock (oldest first):
+    pid application  blocked by     waiting s  query
+   2473 naive-alter  [2472]               3.0  ALTER TABLE events ADD COLUMN flagged boolean
+    138 load         [2473]               3.0  INSERT INTO events (device_id, event_type, region, city, payload) VALU
+    134 load         [2473]               3.0  INSERT INTO events (device_id, event_type, region, city, payload) VALU
+    136 load         [2473]               2.9  INSERT INTO events (device_id, event_type, region, city, payload) VALU
+    137 load         [2473]               2.9  INSERT INTO events (device_id, event_type, region, city, payload) VALU
+
+pg_locks on events (granted first, then the queue):
+    pid application  mode                     granted
+   2472 long-transaction AccessShareLock          True
+   2473 naive-alter  AccessExclusiveLock      False
+    138 load         RowExclusiveLock         False
+    134 load         RowExclusiveLock         False
+    136 load         RowExclusiveLock         False
+    137 load         RowExclusiveLock         False

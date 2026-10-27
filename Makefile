@@ -15,7 +15,7 @@ PSQL ?= docker compose exec -T db psql -X -q -v ON_ERROR_STOP=1 -U $(PGUSER) -d 
 VENV := .venv
 PYTHON := $(VENV)/bin/python
 
-.PHONY: up db run test load psql down
+.PHONY: up db run test load sweep psql down
 
 $(VENV)/.installed: requirements.txt
 	python3 -m venv $(VENV)
@@ -42,6 +42,10 @@ test: $(VENV)/.installed
 # The load script on its own, in the foreground: make load SECONDS=120
 load: $(VENV)/.installed
 	$(PYTHON) -m app.load --seconds $(or $(SECONDS),60)
+
+# Which backfill batch size keeps p99 inside the bar? Recreates the database for every arm: about six minutes.
+sweep: $(VENV)/.installed
+	$(PYTHON) -m scripts.sweep_backfill
 
 psql:
 	docker compose exec db psql -U $(PGUSER) -d $(PGDATABASE)

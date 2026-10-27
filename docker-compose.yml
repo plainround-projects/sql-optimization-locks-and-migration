@@ -22,6 +22,8 @@ services:
       - -c
       - max_wal_size=8GB
       - -c
+      - min_wal_size=2GB
+      - -c
       - checkpoint_timeout=15min
     shm_size: 1gb
     volumes:

@@ -26,3 +26,6 @@ FROM generate_series(1, :rows, 1000000) AS chunk_start
 
 INSERT INTO lab_meta VALUES ('seed_max_id', (SELECT max(id) FROM events));
 VACUUM (ANALYZE) events;
+
+-- Recycle the seed's WAL into spare segments now, so the first big write later does not stall creating them.
+CHECKPOINT;
