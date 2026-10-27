@@ -1,9 +1,9 @@
 """The lesson's load script: steady inserts, updates on recent rows and reads, with p99 and error rate every second.
 
-Each iteration (a request) does one insert, one update of a row inserted a few moments ago, and one read of
-recent events, paced to a steady rate; the request's latency is the three together, as in the lesson's loop.
-A second's p99 counts the operations that finished in it and the age of any operation still waiting, so a stall
-shows up as a high p99 even when nothing completes (otherwise a full outage would look like silence).
+Each iteration does one insert, one update of a row inserted a few moments ago, and one read of recent events,
+paced to a steady rate. A second's p99 counts the operations that finished in it and the age of any operation
+still waiting, so a stall shows up as a high p99 even when nothing completes (otherwise a full outage would
+look like silence).
 """
 import argparse
 import collections
@@ -35,7 +35,6 @@ class LoadRunner:
         self.verbose = verbose
         self.metrics_path = metrics_path
         self.samples = []                                   # (finished_at, operation, milliseconds, ok)
-        self.requests = []                                  # (finished_at, milliseconds, ok): one insert, update and read
         self.timeline = []                                  # one dict per second
         self._inflight = {}
         self._recent_ids = collections.deque(maxlen=5000)
@@ -88,16 +87,10 @@ class LoadRunner:
         while not self._stop.is_set():
             self._stop.wait(max(0.0, due - time.monotonic()))
             due = max(due + interval, time.monotonic())      # after a stall, resume the pace instead of catching up
-            iteration_started = time.monotonic()
-            iteration_ok = True
             for name, operation in (("insert", self._insert), ("update", self._update), ("read", self._read)):
                 if self._stop.is_set():
                     break
-                connection, ok = self._timed(connection, name, operation)
-                iteration_ok = iteration_ok and ok
-            finished = time.monotonic()
-            with self._lock:
-                self.requests.append((finished, (finished - iteration_started) * 1000, iteration_ok))
+                connection, _ = self._timed(connection, name, operation)
         if connection is not None and not connection.closed:
             connection.close()
 
@@ -153,23 +146,17 @@ class LoadRunner:
                 handle.write(json.dumps(entry) + "\n")
 
     def summary(self, start, end):
-        """What finished in [start, end): counts, p99 over requests, and how many seconds stalled.
-
-        A request is one loop iteration (an insert, an update and a read), which is what the lesson's loop
-        records. p99_ms is over requests; op_p99_ms is over single statements; max_ms is the slowest statement.
-        """
+        """Operations that finished in [start, end): counts, p99 over them, and how many seconds stalled."""
         with self._lock:
             window = [sample for sample in self.samples if start <= sample[0] < end]
-            requests = [request for request in self.requests if start <= request[0] < end]
         ticks = [entry for entry in self.timeline if "p99_ms" in entry and start <= entry["t"] - 0.5 < end]
         latencies = [sample[2] for sample in window]
-        request_latencies = [request[1] for request in requests]
         seconds = max(end - start, 1e-9)
         return {
             "seconds": round(seconds, 1), "ops": len(window), "ops_per_second": round(len(window) / seconds, 1),
             "errors": sum(not sample[3] for sample in window),
-            "p50_ms": round(percentile(request_latencies, 0.50), 2), "p99_ms": round(percentile(request_latencies, 0.99), 2),
-            "op_p99_ms": round(percentile(latencies, 0.99), 2), "max_ms": round(max(latencies, default=0), 1),
+            "p50_ms": round(percentile(latencies, 0.50), 2), "p99_ms": round(percentile(latencies, 0.99), 2),
+            "max_ms": round(max(latencies, default=0), 1),
             "worst_second_p99_ms": max((entry["p99_ms"] for entry in ticks), default=0),
             "stalled_seconds": sum(entry["oldest_inflight_ms"] >= STALL_MS for entry in ticks),
         }

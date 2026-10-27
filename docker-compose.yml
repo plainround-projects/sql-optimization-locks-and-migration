@@ -3,6 +3,7 @@
 services:
   db:
     image: postgres:18
+    init: true                    # PID 1 reaps stray exec processes (health checks) instead of the postmaster
     environment:
       POSTGRES_USER: ${PGUSER:-lab}
       POSTGRES_PASSWORD: ${PGPASSWORD:-lab}
@@ -14,7 +15,7 @@ services:
       - -c
       - max_parallel_workers_per_gather=0
       - -c
-      - shared_buffers=768MB
+      - shared_buffers=512MB
       - -c
       - log_lock_waits=on
       - -c
@@ -25,11 +26,11 @@ services:
       - min_wal_size=2GB
       - -c
       - checkpoint_timeout=15min
-    shm_size: 1gb
+    shm_size: 768mb
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-lab} -d ${PGDATABASE:-lab}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${PGUSER:-lab} -d ${PGDATABASE:-lab}"]
       interval: 2s
       timeout: 3s
       retries: 30
