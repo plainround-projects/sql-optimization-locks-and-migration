@@ -74,7 +74,7 @@ CREATE INDEX IF NOT EXISTS idx_events_naive ON events (device_id, created_at DES
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_device_created ON events (device_id, created_at DESC);
 ```
 
-`(device_id, created_at DESC)`: all events of a device together, newest first (equality column first, then the sort column; the PostgreSQL-indexes ideas of the other labs). Built plainly it takes a `SHARE` lock: writes wait. Built `CONCURRENTLY` it takes `SHARE UPDATE EXCLUSIVE`: writes continue (locks note). Numbers from the committed run: plain build 3.2 s with the load stalled (p99 3,003 ms, 4 errors); concurrent build 18.2 s with 0 errors. The concurrent build is slower because it scans the table twice and waits for old transactions.
+`(device_id, created_at DESC)`: all events of a device together, newest first (equality column first, then the sort column; the PostgreSQL-indexes ideas of the other labs). Built plainly it takes a `SHARE` lock: writes wait. Built `CONCURRENTLY` it takes `SHARE UPDATE EXCLUSIVE`: writes continue (locks note). Numbers from the committed run: plain build 0.8 s with the load held up (p99 691 ms, slowest operation 693 ms, 0 errors); concurrent build 1.0 s with 0 errors and a slowest operation of 130 ms. The concurrent build is slower because it scans the table twice and waits for old transactions.
 
 ### The invalid leftover
 

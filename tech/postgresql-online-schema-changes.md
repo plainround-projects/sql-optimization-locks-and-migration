@@ -119,7 +119,7 @@ def id_ranges(first_id: int, last_id: int, batch_size: int) -> Iterator[tuple[in
         return batches
 ```
 
-The Python loop: read the highest id (`SELECT max(id) FROM events`), then for each range from `id_ranges(1, last_id, batch_size)` (2,000 ids at a time) run migration `002` through `apply(2, {"first_id": ..., "last_id": ...})` and `time.sleep(pause_seconds)` (0.05 s). Rows inserted after the column was added have the default already, so the range stops at the highest id seen when the backfill starts. `should_stop()` is checked before each batch: a stopped backfill leaves the rows done so far and can be started again. In the committed run: 1,618 batches, 223 seconds, 0 rows still NULL, 0 errors in the load, and the report shows the table at 447 MB before and 447 MB after, with 117,714 dead row versions left (the lab's note: "every updated row is a new version"; in this run the new versions fit in space the table already had, which is why the size did not change. On a fresh volume the table grows). Batch size is a measurement, not a constant: [the ADR](docs/adr/0002-backfill-batch-size-is-a-measurement.md) explains why 2,000 and not the lesson's 10,000.
+The Python loop: read the highest id (`SELECT max(id) FROM events`), then for each range from `id_ranges(1, last_id, batch_size)` (2,000 ids at a time) run migration `002` through `apply(2, {"first_id": ..., "last_id": ...})` and `time.sleep(pause_seconds)` (0.05 s). Rows inserted after the column was added have the default already, so the range stops at the highest id seen when the backfill starts. `should_stop()` is checked before each batch: a stopped backfill leaves the rows done so far and can be started again. In the committed run: 1,013 batches, 83 seconds, 0 rows still NULL, 0 errors in the load, and the report shows the table at 194 MB before and 392 MB after, with 344,474 dead row versions left (the lab's note: "every updated row is a new version": the backfill updates every row once, so the table roughly doubles until a vacuum reuses the space). Batch size is a measurement, not a constant: [the ADR](docs/adr/0002-backfill-batch-size-is-a-measurement.md) explains why 2,000 and not the lesson's 10,000.
 
 ### The index, concurrently
 
@@ -287,7 +287,7 @@ Move 2: `VALIDATE CONSTRAINT` (the scan, without blocking). Move 3: `SET NOT NUL
         }
 ```
 
-`naive_set_not_null` adds a scratch column with a default, then reports `SET NOT NULL` without any check (a full scan under `ACCESS EXCLUSIVE`: 1,783 ms in the committed run), then drops the column. `not_null_in_three_moves` runs the same three moves as the migration files, each in its own transaction so its locks can be read (2.6 ms, 462 ms, 5.6 ms).
+`naive_set_not_null` adds a scratch column with a default, then reports `SET NOT NULL` without any check (a full scan under `ACCESS EXCLUSIVE`: 187 ms in the committed run), then drops the column. `not_null_in_three_moves` runs the same three moves as the migration files, each in its own transaction so its locks can be read (3.6 ms, 158 ms, 1.2 ms).
 
 ### Running every migration twice, and undoing
 

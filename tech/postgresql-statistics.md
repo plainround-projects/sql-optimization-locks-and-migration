@@ -6,7 +6,7 @@ Before running a query, PostgreSQL's **planner** has to guess how many rows each
 
 ## Why this repository uses it
 
-Step 6 of the lesson is a plan regression you cause yourself: a new market launches, a month of rows is bulk-loaded with a region and city the planner has never seen, and a query that took 0.1 ms starts taking 758 ms. The fix is two statistics commands. The experiment shows the three plans side by side with the estimates.
+Step 6 of the lesson is a plan regression you cause yourself: a new market launches, a month of rows is bulk-loaded with a region and city the planner has never seen, and a query that took 0.1 ms starts taking 160 ms. The fix is two statistics commands. The experiment shows the three plans side by side with the estimates.
 
 ## Where it appears
 
@@ -76,35 +76,35 @@ SELECT id, created_at FROM events WHERE region = 'pacific' AND city = 'seattle' 
 
 `SELECT id, created_at FROM events WHERE region = 'pacific' AND city = 'seattle' ORDER BY created_at DESC LIMIT 100`: "the newest 100 Seattle events". 
 
-**Before statistics catch up** (`f1_stale_statistics.txt`): the planner has never seen these values, so it expects **one row** (`rows=1` on the `Seq Scan`) and chooses to read the whole table, sort, and take 100. In fact 150,000 rows match (`actual ... rows=150000.00`), `Rows Removed by Filter: 2460839`, and it takes 758 ms.
+**Before statistics catch up** (`f1_stale_statistics.txt`): the planner has never seen these values, so it expects **one row** (`rows=1` on the `Seq Scan`) and chooses to read the whole table, sort, and take 100. In fact 150,000 rows match (`actual ... rows=150000.00`), `Rows Removed by Filter: 2453908`, and it takes 160 ms.
 
 `sql/explain/f2_after_analyze.txt`, lines 1 to 8:
 
 ```text
-Limit  (cost=0.43..936.66 rows=100 width=16) (actual time=0.021..0.105 rows=100.00 loops=1)
-  Buffers: shared hit=10
-  ->  Index Scan Backward using idx_events_created_at on events  (cost=0.43..322764.45 rows=34475 width=16) (actual time=0.019..0.095 rows=100.00 loops=1)
+Limit  (cost=0.43..863.80 rows=100 width=16) (actual time=1.011..1.054 rows=100.00 loops=1)
+  Buffers: shared hit=3894 read=18
+  ->  Index Scan Backward using idx_events_created_at on events  (cost=0.43..294643.30 rows=34127 width=16) (actual time=1.010..1.048 rows=100.00 loops=1)
         Filter: ((region = 'pacific'::text) AND (city = 'seattle'::text))
-        Rows Removed by Filter: 297
+        Rows Removed by Filter: 4217
         Index Searches: 1
-        Buffers: shared hit=10
+        Buffers: shared hit=3894 read=18
 Planning:
 ```
 
-**After `ANALYZE events`** (`f2`): the planner now knows `pacific` and `seattle` exist, but estimates 34,475 rows (`rows=34475` on the `Index Scan Backward` line of `f2_after_analyze.txt`) by multiplying the two selectivities as if independent. It is wrong by a factor of four, but good enough: it now chooses to walk the index on `created_at` backwards (`Index Scan Backward using idx_events_created_at`) and filter, stopping after 100 matches: 0.13 ms.
+**After `ANALYZE events`** (`f2`): the planner now knows `pacific` and `seattle` exist, but estimates 34,127 rows (`rows=34127` on the `Index Scan Backward` line of `f2_after_analyze.txt`) by multiplying the two selectivities as if independent. It is wrong by a factor of four, but good enough: it now chooses to walk the index on `created_at` backwards (`Index Scan Backward using idx_events_created_at`) and filter, stopping after 100 matches: 1.07 ms.
 
 `sql/explain/f3_after_extended_statistics.txt`, lines 1 to 6:
 
 ```text
-Limit  (cost=0.43..209.19 rows=100 width=16) (actual time=0.014..0.068 rows=100.00 loops=1)
-  Buffers: shared hit=10
-  ->  Index Scan Backward using idx_events_created_at on events  (cost=0.43..323965.28 rows=155189 width=16) (actual time=0.013..0.060 rows=100.00 loops=1)
+Limit  (cost=0.43..198.55 rows=100 width=16) (actual time=0.740..0.784 rows=100.00 loops=1)
+  Buffers: shared hit=3790
+  ->  Index Scan Backward using idx_events_created_at on events  (cost=0.43..295069.34 rows=148932 width=16) (actual time=0.739..0.779 rows=100.00 loops=1)
         Filter: ((region = 'pacific'::text) AND (city = 'seattle'::text))
-        Rows Removed by Filter: 297
+        Rows Removed by Filter: 4225
         Index Searches: 1
 ```
 
-**After extended statistics** (`f3`): estimate 155,189, close to the real 150,000, same fast plan (0.108 ms). In `results.md` the three rows are: estimate 1 / 150,000 actual / `Sort / Seq Scan` / 758 ms; 34,475 / `Index Scan Backward` / 0.134 ms; 155,189 / `Index Scan Backward` / 0.108 ms.
+**After extended statistics** (`f3`): estimate 148,932, close to the real 150,000, same fast plan (0.79 ms). In `results.md` the three rows are: estimate 1 / 150,000 actual / `Sort / Seq Scan` / 160 ms; 34,127 / `Index Scan Backward` / 1.065 ms; 148,932 / `Index Scan Backward` / 0.792 ms.
 
 The two commands (from the adapter):
 

@@ -55,16 +55,16 @@ Three small jobs need pattern matching: reading the estimate and the node types 
 The plan that the examples read (`sql/explain/f1_stale_statistics.txt`, the query before statistics catch up):
 
 ```text
-Limit  (cost=87277.40..87277.40 rows=1 width=16) (actual time=758.359..758.371 rows=100.00 loops=1)
-  Buffers: shared hit=38455 read=18684
-  ->  Sort  (cost=87277.40..87277.40 rows=1 width=16) (actual time=758.355..758.360 rows=100.00 loops=1)
+Limit  (cost=80154.85..80154.85 rows=1 width=16) (actual time=160.418..160.426 rows=100.00 loops=1)
+  Buffers: shared hit=39116 read=10990 written=254
+  ->  Sort  (cost=80154.85..80154.85 rows=1 width=16) (actual time=160.417..160.420 rows=100.00 loops=1)
         Sort Key: created_at DESC
         ...
-        ->  Seq Scan on events  (cost=0.00..87277.39 rows=1 width=16) (actual time=153.866..724.996 rows=150000.00 loops=1)
+        ->  Seq Scan on events  (cost=0.00..80154.84 rows=1 width=16) (actual time=0.111..144.397 rows=150000.00 loops=1)
               Filter: ((region = 'pacific'::text) AND (city = 'seattle'::text))
-              Rows Removed by Filter: 2460839
+              Rows Removed by Filter: 2453908
 ...
-Execution Time: 758.459 ms
+Execution Time: 160.440 ms
 ```
 
 `src/locks_lab/domain/flip.py`, lines 11 to 13:
@@ -77,7 +77,7 @@ _EXECUTION = re.compile(r"Execution Time: ([\d.]+) ms")
 
 - `_NODE = re.compile(r"^\s*(?:->\s*)?(Seq Scan|Index Scan Backward|Index Scan|Bitmap Heap Scan|Sort)\b", re.MULTILINE)` finds the five kinds of step this experiment cares about. With `re.MULTILINE`, `^` matches at the start of every line. `\s*` skips leading spaces; `(?:->\s*)?` is an optional arrow (child steps start with `->`); the group `(Seq Scan|Index Scan Backward|Index Scan|Bitmap Heap Scan|Sort)` is one of the five names (`|` means "or"; the longer `Index Scan Backward` is listed before `Index Scan` so the longer name wins); `\b` is a **word boundary**: the name must end where a word ends. The first line, `Limit`, is not in the list, so it does not match. For the plan above `findall` returns `['Sort', 'Sort', 'Sort', 'Seq Scan']`: the `Sort` step itself, and also the lines `Sort Key: created_at DESC` and `Sort Method: ...`, which start with the word `Sort` too; then the `Seq Scan` step. `parse_flip_plan` builds its tuple with `dict.fromkeys(...)`, which keeps the first of each, so the result is `('Sort', 'Seq Scan')`.
 - `_ESTIMATE = re.compile(r"\(cost=[^)]*rows=(\d+)")` captures the **estimated** row count of each node. `\(cost=` is a literal opening bracket and `cost=` (the backslash makes the bracket literal), `[^)]*` is any run of characters that are not a closing bracket, then `rows=` and the digits. It skips the `(actual ...)` part because that starts with `(actual`, not `(cost`. `findall` returns every node's estimate in order, outermost first: `['1', '1', '1']` for this plan, and the code takes the last one (`estimates[-1]`), the deepest node's.
-- `_EXECUTION = re.compile(r"Execution Time: ([\d.]+) ms")` captures `758.459` (digits and dots) before ` ms`.
+- `_EXECUTION = re.compile(r"Execution Time: ([\d.]+) ms")` captures `160.440` (digits and dots) before ` ms`.
 
 ### Checking a time setting (`infrastructure/settings.py`)
 
@@ -103,7 +103,7 @@ _DOLLAR_TAG = re.compile(r"\$[A-Za-z_]*\$")
 ## Try it yourself
 
 1. `.venv/bin/python -c "from locks_lab.domain.flip import _NODE, _ESTIMATE; t = open('sql/explain/f1_stale_statistics.txt').read(); print(_NODE.findall(t), _ESTIMATE.findall(t))"` prints `['Sort', 'Sort', 'Sort', 'Seq Scan'] ['1', '1', '1']`.
-2. `.venv/bin/python -c "from locks_lab.domain.flip import parse_flip_plan as p; print(p(open('sql/explain/f3_after_extended_statistics.txt').read().splitlines()))"` prints `FlipPlan(estimate=155189, nodes=('Index Scan Backward',), milliseconds=...)`: the deepest node's estimate (the `Limit` node says 100).
+2. `.venv/bin/python -c "from locks_lab.domain.flip import parse_flip_plan as p; print(p(open('sql/explain/f3_after_extended_statistics.txt').read().splitlines()))"` prints `FlipPlan(estimate=148932, nodes=('Index Scan Backward',), milliseconds=...)`: the deepest node's estimate (the `Limit` node says 100).
 3. `.venv/bin/python -c "from locks_lab.infrastructure.settings import _INTERVAL as I; print([bool(I.match(x)) for x in ('500ms', '2s', '1min', '2 seconds', '2', '-1s')])"` prints `[True, True, True, False, False, False]`.
 4. `LOCK_TIMEOUT="2 seconds" .venv/bin/locks-lab-health` (with the other variables loaded) prints `configuration error: LOCK_TIMEOUT must look like 500ms, 2s or 1min, got '2 seconds'` and exits with code 2.
 5. `.venv/bin/python -c "from locks_lab.infrastructure.sql_script import _DOLLAR_TAG as D; print(D.match('\$sql\$ SELECT'), D.match('\$\$ x').group(0))"` prints a match for `$sql$` and then `$$`.

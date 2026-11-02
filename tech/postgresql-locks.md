@@ -71,23 +71,23 @@ Three sessions are involved, each with its own `application_name`: **A** `long-t
 ```text
 pg_stat_activity, sessions waiting on a lock (oldest first):
     pid application        blocked by     waiting s  query
-   6318 naive-alter        [6317]               3.0  ALTER TABLE events ADD COLUMN flagged boolean
-   4101 load               [6318]              -0.1  UPDATE events SET payload = payload || '{"seen": true}' WHERE id = $1
-   4102 load               [6318]              -0.1  UPDATE events SET payload = payload || '{"seen": true}' WHERE id = $1
-   4098 load               [6318]              -0.1  UPDATE events SET payload = payload || '{"seen": true}' WHERE id = $1
-   4100 load               [6318]              -0.1  UPDATE events SET payload = payload || '{"seen": true}' WHERE id = $1
+   2495 naive-alter        [2494]               3.0  ALTER TABLE events ADD COLUMN flagged boolean
+    139 load               [2495]               2.9  INSERT INTO events (device_id, event_type, region, city, payload) VALU
+    138 load               [2495]               2.9  INSERT INTO events (device_id, event_type, region, city, payload) VALU
+    134 load               [2495]               2.9  INSERT INTO events (device_id, event_type, region, city, payload) VALU
+    136 load               [2495]               2.9  INSERT INTO events (device_id, event_type, region, city, payload) VALU
 
 pg_locks on events (granted first, then the queue):
     pid application        mode                     granted
-   6317 long-transaction   AccessShareLock          True
-   6318 naive-alter        AccessExclusiveLock      False
-   4101 load               RowExclusiveLock         False
-   4102 load               RowExclusiveLock         False
-   4098 load               RowExclusiveLock         False
-   4100 load               RowExclusiveLock         False
+   2494 long-transaction   AccessShareLock          True
+   2495 naive-alter        AccessExclusiveLock      False
+    139 load               RowExclusiveLock         False
+    138 load               RowExclusiveLock         False
+    134 load               RowExclusiveLock         False
+    136 load               RowExclusiveLock         False
 ```
 
-Reading it: the first table (from `pg_stat_activity`) lists the sessions waiting on a lock, oldest first. `naive-alter` (pid 6318) is **blocked by [6317]**, which is `long-transaction` (second table, line `6317 long-transaction AccessShareLock True`: it holds its lock, `granted` is `True`). Every `load` session is **blocked by [6318]**, the ALTER, not by 6317, and in the second table their `RowExclusiveLock` requests are `granted False`: they never conflicted with the read, they wait for the ALTER's queued request. The negative `waiting s` of the load sessions (`-0.1`) is a quirk of the query: it computes `now() - query_start`, and `now()` is the time the *observer's* statement began, which was a moment before those statements started waiting. Result in `results.md`: ops per second fall from about 120 to 2.4, four stalled seconds, p99 of 3,031 ms and 8 errors (the load's 3-second statement timeout).
+Reading it: the first table (from `pg_stat_activity`) lists the sessions waiting on a lock, oldest first. `naive-alter` (pid 2495) is **blocked by [2494]**, which is `long-transaction` (second table, line `2494 long-transaction AccessShareLock True`: it holds its lock, `granted` is `True`). Every `load` session is **blocked by [2495]**, the ALTER, not by 2494, and in the second table their `RowExclusiveLock` requests are `granted False`: they never conflicted with the read, they wait for the ALTER's queued request. In some captures the `waiting s` of a load session is slightly negative (`-0.1`); that is a quirk of the query: it computes `now() - query_start`, and `now()` is the time the *observer's* statement began, which can be a moment before a statement started waiting. Result in `results.md`: ops per second fall from about 120 to 0.8, six stalled seconds, p99 of 3,003 ms and 4 errors (the load's 3-second statement timeout).
 
 `src/locks_lab/domain/locks.py`, lines 29 to 61:
 
@@ -156,7 +156,7 @@ COMMIT;
 CREATE INDEX IF NOT EXISTS idx_events_naive ON events (device_id, created_at DESC);
 ```
 
-A plain `CREATE INDEX` takes a `SHARE` lock for the whole build: reads continue (`ACCESS SHARE` does not conflict) but inserts, updates and deletes (`ROW EXCLUSIVE`) wait. In `results.md`: build 3.2 s, p99 3,003 ms, slowest operation 3,011 ms, 4 errors. `CREATE INDEX CONCURRENTLY` (migration `003`) takes `SHARE UPDATE EXCLUSIVE`, which does not conflict with `ROW EXCLUSIVE`, so writes continue (0 errors, slowest operation 491 ms on a loaded machine). The price: two table scans, a longer build and the invalid-index leftover (PostgreSQL online schema changes note).
+A plain `CREATE INDEX` takes a `SHARE` lock for the whole build: reads continue (`ACCESS SHARE` does not conflict) but inserts, updates and deletes (`ROW EXCLUSIVE`) wait. In `results.md`: build 0.8 s, p99 691 ms, slowest operation 693 ms, 0 errors. `CREATE INDEX CONCURRENTLY` (migration `003`) takes `SHARE UPDATE EXCLUSIVE`, which does not conflict with `ROW EXCLUSIVE`, so writes continue (0 errors, slowest operation 130 ms). The price: two table scans, a longer build and the invalid-index leftover (PostgreSQL online schema changes note).
 
 ### Step 5: NOT NULL and the lock of each move
 
@@ -211,7 +211,7 @@ A `SET NOT NULL` with no proof must scan every row to make sure none is NULL, **
         return LockReport(report.seconds, report.lock_modes, tries)
 ```
 
-and the table in `results.md`: move 1 (`ADD CONSTRAINT ... CHECK (flagged IS NOT NULL) NOT VALID`) `AccessExclusiveLock` for 2.6 ms; move 2 (`VALIDATE CONSTRAINT`) `ShareUpdateExclusiveLock` for 462 ms (the scan, with reads *and writes* flowing); move 3 (`SET NOT NULL`, then `DROP CONSTRAINT`) `AccessExclusiveLock` for 5.6 ms. The strong lock is held only when no scan is needed.
+and the table in `results.md`: move 1 (`ADD CONSTRAINT ... CHECK (flagged IS NOT NULL) NOT VALID`) `AccessExclusiveLock` for 3.6 ms; move 2 (`VALIDATE CONSTRAINT`) `ShareUpdateExclusiveLock` for 158 ms (the scan, with reads *and writes* flowing); move 3 (`SET NOT NULL`, then `DROP CONSTRAINT`) `AccessExclusiveLock` for 1.2 ms. The strong lock is held only when no scan is needed.
 
 ### The lab's own politeness
 

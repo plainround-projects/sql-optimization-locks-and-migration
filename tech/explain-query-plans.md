@@ -71,44 +71,44 @@ The file is a comment, `SET timezone = 'UTC'`, and the `EXPLAIN (ANALYZE, BUFFER
 `sql/explain/f1_stale_statistics.txt`, lines 1 to 13:
 
 ```text
-Limit  (cost=87277.40..87277.40 rows=1 width=16) (actual time=758.359..758.371 rows=100.00 loops=1)
-  Buffers: shared hit=38455 read=18684
-  ->  Sort  (cost=87277.40..87277.40 rows=1 width=16) (actual time=758.355..758.360 rows=100.00 loops=1)
+Limit  (cost=80154.85..80154.85 rows=1 width=16) (actual time=160.418..160.426 rows=100.00 loops=1)
+  Buffers: shared hit=39116 read=10990 written=254
+  ->  Sort  (cost=80154.85..80154.85 rows=1 width=16) (actual time=160.417..160.420 rows=100.00 loops=1)
         Sort Key: created_at DESC
         Sort Method: top-N heapsort  Memory: 32kB
-        Buffers: shared hit=38455 read=18684
-        ->  Seq Scan on events  (cost=0.00..87277.39 rows=1 width=16) (actual time=153.866..724.996 rows=150000.00 loops=1)
+        Buffers: shared hit=39116 read=10990 written=254
+        ->  Seq Scan on events  (cost=0.00..80154.84 rows=1 width=16) (actual time=0.111..144.397 rows=150000.00 loops=1)
               Filter: ((region = 'pacific'::text) AND (city = 'seattle'::text))
-              Rows Removed by Filter: 2460839
-              Buffers: shared hit=38452 read=18684
+              Rows Removed by Filter: 2453908
+              Buffers: shared hit=39113 read=10990 written=254
 Planning:
-  Buffers: shared hit=31
-Planning Time: 0.737 ms
+  Buffers: shared hit=29 read=2
+Planning Time: 0.199 ms
 ```
 
 Reading it, outermost step first:
 
-1. `Limit  (cost=87277.40..87277.40 rows=1 width=16) (actual time=758.359..758.371 rows=100.00 loops=1)`: keep 100 rows. The planner **estimated 1 row** (`rows=1`); it actually produced 100.
+1. `Limit  (cost=80154.85..80154.85 rows=1 width=16) (actual time=160.418..160.426 rows=100.00 loops=1)`: keep 100 rows. The planner **estimated 1 row** (`rows=1`); it actually produced 100.
 2. `->  Sort  (...) Sort Key: created_at DESC  Sort Method: top-N heapsort  Memory: 32kB`: sort by time, newest first, keeping only the best 100 (a "top-N heapsort" uses little memory).
-3. `->  Seq Scan on events  (cost=0.00..87277.39 rows=1 width=16) (actual time=153.866..724.996 rows=150000.00 loops=1)`: read the whole table. Estimate: 1 row. Actual: **150,000**. This gap is the whole story.
-4. `Filter: ((region = 'pacific'::text) AND (city = 'seattle'::text))` and `Rows Removed by Filter: 2460839`: 2.46 million rows read and discarded.
-5. `Buffers: shared hit=38452 read=18684`: pages touched (some from outside the cache: `read=`).
-6. `Planning:` / `Buffers: shared hit=31` is the work of planning itself (PostgreSQL 17 and newer print it), then `Planning Time: 0.737 ms` and `Execution Time: 758.459 ms`.
+3. `->  Seq Scan on events  (cost=0.00..80154.84 rows=1 width=16) (actual time=0.111..144.397 rows=150000.00 loops=1)`: read the whole table. Estimate: 1 row. Actual: **150,000**. This gap is the whole story.
+4. `Filter: ((region = 'pacific'::text) AND (city = 'seattle'::text))` and `Rows Removed by Filter: 2453908`: 2.45 million rows read and discarded.
+5. `Buffers: shared hit=39113 read=10990`: pages touched (some from outside the cache: `read=`).
+6. `Planning:` / `Buffers: shared hit=29 read=2` is the work of planning itself (PostgreSQL 17 and newer print it), then `Planning Time: 0.199 ms` and `Execution Time: 160.440 ms`.
 
 `sql/explain/f2_after_analyze.txt`, lines 1 to 8:
 
 ```text
-Limit  (cost=0.43..936.66 rows=100 width=16) (actual time=0.021..0.105 rows=100.00 loops=1)
-  Buffers: shared hit=10
-  ->  Index Scan Backward using idx_events_created_at on events  (cost=0.43..322764.45 rows=34475 width=16) (actual time=0.019..0.095 rows=100.00 loops=1)
+Limit  (cost=0.43..863.80 rows=100 width=16) (actual time=1.011..1.054 rows=100.00 loops=1)
+  Buffers: shared hit=3894 read=18
+  ->  Index Scan Backward using idx_events_created_at on events  (cost=0.43..294643.30 rows=34127 width=16) (actual time=1.010..1.048 rows=100.00 loops=1)
         Filter: ((region = 'pacific'::text) AND (city = 'seattle'::text))
-        Rows Removed by Filter: 297
+        Rows Removed by Filter: 4217
         Index Searches: 1
-        Buffers: shared hit=10
+        Buffers: shared hit=3894 read=18
 Planning:
 ```
 
-After `ANALYZE`: `Index Scan Backward using idx_events_created_at` under the `Limit`. The scan's estimate is `rows=34475` but it stops after 100 rows (`actual ... rows=100.00`): `Rows Removed by Filter: 297` — it walked 397 index entries to find 100 Seattle rows. `Index Searches: 1`, 10 buffers, 0.134 ms in the committed file. The Python reader, `parse_flip_plan`, takes the last `rows=` of the plan as the estimate (regular-expressions note) and the node types in order.
+After `ANALYZE`: `Index Scan Backward using idx_events_created_at` under the `Limit`. The scan's estimate is `rows=34127` but it stops after 100 rows (`actual ... rows=100.00`): `Rows Removed by Filter: 4217` — it walked 4,317 index entries to find 100 Seattle rows. `Index Searches: 1`, 3,912 buffers, 1.065 ms in the committed file. The Python reader, `parse_flip_plan`, takes the last `rows=` of the plan as the estimate (regular-expressions note) and the node types in order.
 
 `src/locks_lab/domain/flip.py`, lines 16 to 39:
 
@@ -148,7 +148,7 @@ def parse_flip_plan(lines: Sequence[str]) -> FlipPlan:
 1. `cat sql/explain/f1_stale_statistics.txt` — the plan above.
 2. Replay the three moments yourself (statistics note, items 2 to 4) and compare each `EXPLAIN` output with the committed file.
 3. `docker compose exec db psql -U lab -d lab -c "explain select id, created_at from events where region = 'pacific' and city = 'seattle' order by created_at desc limit 100"` — only the estimate, no execution.
-4. `.venv/bin/python -c "from locks_lab.domain.flip import parse_flip_plan as p; print(p(open('sql/explain/f2_after_analyze.txt').read().splitlines()))"` prints `FlipPlan(estimate=34475, nodes=('Index Scan Backward',), milliseconds=0.134)` (the committed numbers).
+4. `.venv/bin/python -c "from locks_lab.domain.flip import parse_flip_plan as p; print(p(open('sql/explain/f2_after_analyze.txt').read().splitlines()))"` prints `FlipPlan(estimate=34127, nodes=('Index Scan Backward',), milliseconds=1.065)` (the committed numbers).
 
 ## Mistakes people make
 
