@@ -1,11 +1,11 @@
-Limit  (cost=0.43..936.66 rows=100 width=16) (actual time=0.021..0.105 rows=100.00 loops=1)
-  Buffers: shared hit=10
-  ->  Index Scan Backward using idx_events_created_at on events  (cost=0.43..322764.45 rows=34475 width=16) (actual time=0.019..0.095 rows=100.00 loops=1)
+Limit  (cost=0.43..863.80 rows=100 width=16) (actual time=1.011..1.054 rows=100.00 loops=1)
+  Buffers: shared hit=3894 read=18
+  ->  Index Scan Backward using idx_events_created_at on events  (cost=0.43..294643.30 rows=34127 width=16) (actual time=1.010..1.048 rows=100.00 loops=1)
         Filter: ((region = 'pacific'::text) AND (city = 'seattle'::text))
-        Rows Removed by Filter: 297
+        Rows Removed by Filter: 4217
         Index Searches: 1
-        Buffers: shared hit=10
+        Buffers: shared hit=3894 read=18
 Planning:
-  Buffers: shared hit=38
-Planning Time: 0.396 ms
-Execution Time: 0.134 ms
+  Buffers: shared hit=39
+Planning Time: 0.105 ms
+Execution Time: 1.065 ms

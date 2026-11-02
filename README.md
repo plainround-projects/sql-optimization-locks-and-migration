@@ -124,29 +124,29 @@ Settings (all optional):
 
 ## Done when: how each line is proved
 
-**Measured on a loaded machine (load average 22.7 on 12 CPUs); rerun `make measure` for clean figures.** These numbers come from `sql/explain/results.md`, the last `make measure` (ten-minute baseline), taken on a shared laptop while other work was running, so every absolute millisecond is several times higher than on a quiet machine (the baseline p99 is 73 ms here and a few milliseconds when quiet). **Read the before-and-after ratios**, which survive load far better than the milliseconds.
+**Measured at load average 3.0 on 12 CPUs, on 2026-11-02.** These numbers come from `sql/explain/results.md`, the last `make measure` (ten-minute baseline), taken on a quiet machine. The baseline p99 is 7.1 ms; on a busy shared laptop the same run gave a baseline of 73 ms, so always read the load average at the top of `results.md` before comparing milliseconds. The before-and-after ratios survive load far better than the milliseconds.
 
 | Change | Naive: p99 ms (errors, stalled seconds) | Safe: p99 ms (errors, stalled seconds) | Ratio |
 |---|---:|---:|---:|
-| Add a column (naive `ALTER` behind a long read, then add column and backfill) | 3,031 (8, 4) | 103 (0, 0) | 29x |
-| Add an index (plain, then `CONCURRENTLY`) | 3,003 (4, 3) | 236 (0, 0) | 13x |
-| `NOT NULL` (one `SET NOT NULL`, then three moves) | 1,782 (0, 1) | 34 (0, 0) | 53x |
-| The plan after a bulk load (stale statistics, then extended statistics), execution time | 758 ms | 0.108 ms | about 7,000x |
+| Add a column (naive `ALTER` behind a long read, then add column and backfill) | 3,003 (4, 6) | 4.9 (0, 0) | 614x |
+| Add an index (plain, then `CONCURRENTLY`) | 691 (0, 0) | 128 (0, 0) | 5.4x |
+| `NOT NULL` (one `SET NOT NULL`, then three moves) | 142 (0, 0) | 6.6 (0, 0) | 22x |
+| The plan after a bulk load (stale statistics, then extended statistics), execution time | 160 ms | 0.79 ms | about 200x |
 
 | Window | p99 ms | Max ms | Errors | Stalled seconds |
 |---|---:|---:|---:|---:|
-| Baseline, opening (600 s, 120 operations a second) | 73.4 | 462 | 0 | 0 |
-| Baseline, closing (20 s) | 49.4 | 103 | 0 | 0 |
-| Naive `ALTER` behind a long read (6 s) | 3,031 | 3,031 | 8 | 4 |
-| Safe migration: column and 1,618 backfill batches (223 s) | 103 | 658 | 0 | 0 |
-| Plain `CREATE INDEX` (3.2 s build) | 3,003 | 3,012 | 4 | 3 |
-| `CREATE INDEX CONCURRENTLY` (18.2 s build) | 236 | 491 | 0 | 0 |
-| Naive `SET NOT NULL` (1.8 s scan) | 1,782 | 1,798 | 0 | 1 |
-| `NOT NULL` in three moves | 33.7 | 41.9 | 0 | 0 |
+| Baseline, opening (600 s, 120 operations a second) | 7.1 | 249 | 0 | 0 |
+| Baseline, closing (20 s) | 6.4 | 19.9 | 0 | 0 |
+| Naive `ALTER` behind a long read (6 s) | 3,003 | 3,003 | 4 | 6 |
+| Safe migration: column and 1,013 backfill batches (83 s) | 4.9 | 68.5 | 0 | 0 |
+| Plain `CREATE INDEX` (0.8 s build) | 691 | 693 | 0 | 0 |
+| `CREATE INDEX CONCURRENTLY` (1.0 s build) | 128 | 130 | 0 | 0 |
+| Naive `SET NOT NULL` (187 ms scan) | 142 | 144 | 0 | 0 |
+| `NOT NULL` in three moves | 6.6 | 8.3 | 0 | 0 |
 
-The safe migration's p99 (103 ms) is 1.4 times the higher baseline (73 ms): the "within twice baseline, no errors, no stalled second" line is met in this run. Locks held by the three `NOT NULL` moves: `ACCESS EXCLUSIVE` for 2.6 ms, `SHARE UPDATE EXCLUSIVE` for 462 ms (the validation scan, with reads and writes flowing), `ACCESS EXCLUSIVE` for 5.6 ms. The plan flip: estimate 1 row against 150,000 found (758 ms, `Seq Scan` and `Sort`); after `ANALYZE` an estimate of 34,475 and the index plan (0.13 ms); after extended statistics an estimate of 155,189.
+The safe migration's p99 (4.9 ms) is below the higher baseline (7.1 ms), so the "within twice baseline, no errors, no stalled second" line is met in this run. Locks held by the three `NOT NULL` moves: `ACCESS EXCLUSIVE` for 3.6 ms, `SHARE UPDATE EXCLUSIVE` for 158 ms (the validation scan, with reads and writes flowing), `ACCESS EXCLUSIVE` for 1.2 ms. The plan flip: estimate 1 row against 150,000 found (160 ms, `Seq Scan` and `Sort`); after `ANALYZE` an estimate of 34,127 and the index plan (1.07 ms); after extended statistics an estimate of 148,932 (0.79 ms).
 
-**What this machine could not show.** The concurrent build's slowest operation (491 ms) is also above twice the baseline's p99 on this loaded machine, so the strict last column of `results.md` says "no" for it; the lesson asks that line only of the safe migration, and the test for step 4 compares the slowest insert with the length of the build itself, which load does not change. In earlier runs on a quieter machine the same code kept the safe migration at 10 to 16 ms against baselines of 3 to 7 ms, and once missed the factor of two (17.8 ms against a bar of 8.0 ms): p99 of single-millisecond statements moves by a factor of two or three between runs on a shared laptop, and the backfill's cost sits near the bar. The lab shows the order of magnitude reliably: the naive changes stall the load for seconds and produce errors, and the safe ones stay in tens to hundreds of milliseconds here with no errors and no stalled second. Rerun `make measure` when the machine is quiet.
+**What this run shows and what it does not.** The concurrent build's slowest operation (130 ms) is above twice the baseline's p99 (14.2 ms), so the strict last column of `results.md` says "no" for it; the lesson asks that line only of the safe migration, and the test for step 4 compares the slowest insert with the length of the build itself, which load does not change. The plain build took only 0.8 s here, so the damage is one slow operation (693 ms) rather than seconds of stall; on a larger table it grows with the length of the build. Between runs on a shared laptop the p99 of single-millisecond statements moves by a factor of two or three, and the backfill's cost sits near the bar: earlier runs kept the safe migration at 10 to 16 ms against baselines of 3 to 7 ms, and once missed the factor of two (17.8 ms against a bar of 8.0 ms). The lab shows the order of magnitude reliably: the naive changes stall the load or add hundreds of milliseconds, and the safe ones stay within a few multiples of the baseline with no errors and no stalled second. One earlier run on 2026-11-02 under load (load average 13.1 on 12 CPUs) gave a safe-migration p99 of 33.2 ms against a bar of 16.0 ms: it missed the factor of two, which is why the load average printed at the top of `results.md` matters.
 
 
 | Done when (lesson) | How to see it | Test |

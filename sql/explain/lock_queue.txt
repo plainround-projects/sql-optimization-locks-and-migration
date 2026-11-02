@@ -1,16 +1,16 @@
 pg_stat_activity, sessions waiting on a lock (oldest first):
     pid application        blocked by     waiting s  query
-   6318 naive-alter        [6317]               3.0  ALTER TABLE events ADD COLUMN flagged boolean
-   4101 load               [6318]              -0.1  UPDATE events SET payload = payload || '{"seen": true}' WHERE id = $1
-   4102 load               [6318]              -0.1  UPDATE events SET payload = payload || '{"seen": true}' WHERE id = $1
-   4098 load               [6318]              -0.1  UPDATE events SET payload = payload || '{"seen": true}' WHERE id = $1
-   4100 load               [6318]              -0.1  UPDATE events SET payload = payload || '{"seen": true}' WHERE id = $1
+   2495 naive-alter        [2494]               3.0  ALTER TABLE events ADD COLUMN flagged boolean
+    139 load               [2495]               2.9  INSERT INTO events (device_id, event_type, region, city, payload) VALU
+    138 load               [2495]               2.9  INSERT INTO events (device_id, event_type, region, city, payload) VALU
+    134 load               [2495]               2.9  INSERT INTO events (device_id, event_type, region, city, payload) VALU
+    136 load               [2495]               2.9  INSERT INTO events (device_id, event_type, region, city, payload) VALU
 
 pg_locks on events (granted first, then the queue):
     pid application        mode                     granted
-   6317 long-transaction   AccessShareLock          True
-   6318 naive-alter        AccessExclusiveLock      False
-   4101 load               RowExclusiveLock         False
-   4102 load               RowExclusiveLock         False
-   4098 load               RowExclusiveLock         False
-   4100 load               RowExclusiveLock         False
+   2494 long-transaction   AccessShareLock          True
+   2495 naive-alter        AccessExclusiveLock      False
+    139 load               RowExclusiveLock         False
+    138 load               RowExclusiveLock         False
+    134 load               RowExclusiveLock         False
+    136 load               RowExclusiveLock         False
