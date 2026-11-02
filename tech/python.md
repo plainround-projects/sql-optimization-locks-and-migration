@@ -1108,6 +1108,273 @@ def build_scenarios(settings: Settings, pause: Callable[[float], None], should_s
 
 `load_settings()` is the start-up described in the command-line note. `measure_host_load()` calls `os.getloadavg()[0]` and `os.cpu_count() or 1`. `build_table` and `build_scenarios` are the **composition root**: `build_scenarios(settings, pause, should_stop)` creates the four PostgreSQL adapters and hands them to `Scenarios`; it is the one place that knows which implementations are in use.
 
+### The headers and imports not quoted elsewhere
+
+#### Reading the top of a module
+
+Most modules start with the same three parts, explained once here so that the sections below can be short. First a **docstring**: a text in triple quotes as the very first statement of a file; Python keeps it as the description of the module, and tools show it as help. Then `from __future__ import annotations`, a line that tells Python to treat type hints (the `: int` and `-> str` annotations) as plain text that is not evaluated while the file loads; this lets a hint refer to a class that is defined further down. Then the imports: `import x` makes the module `x` available; `from x import y` brings one name out of it; a dot in front, as in `from .postgres import session`, means "the module `postgres` in this same package" and two dots, `from ..domain.errors import ...`, mean "go up one package, then into `domain`". The logger line `logger = logging.getLogger(__name__)` creates a logger named after the module (`__name__` is the module's dotted name), so every log line says which module wrote it.
+
+##### The `__init__.py` files
+
+A folder is a Python **package** when it contains a file called `__init__.py`. The file may be empty or hold only a docstring, as these do. Each of the four layers has one, and its docstring states the layer's rule.
+
+`src/locks_lab/domain/__init__.py`, lines 1 to 1:
+
+```python
+"""Percentiles, locks, backfill ranges and plan estimates: the lesson's vocabulary. Depends on nothing."""
+```
+
+`src/locks_lab/application/__init__.py`, lines 1 to 1:
+
+```python
+"""Use cases and the ports they need; no knowledge of PostgreSQL, threads or files."""
+```
+
+`src/locks_lab/infrastructure/__init__.py`, lines 1 to 1:
+
+```python
+"""Adapters: PostgreSQL, the threaded load, files, settings, logging, retries and shutdown."""
+```
+
+`src/locks_lab/interfaces/__init__.py`, lines 1 to 1:
+
+```python
+"""Entry points: the command-line programs."""
+```
+
+
+##### `schema_changes.py`, the top of the file
+
+`src/locks_lab/infrastructure/schema_changes.py`, lines 1 to 6:
+
+```python
+"""Adapter: the three changes of the lesson, each the naive way and the safe way. Implements `SchemaChanges`.
+
+The safe versions run the repository's migration files; anything that needs a strong lock sets a short lock_timeout
+(in the file) and is retried here, so a busy table makes the migration wait politely instead of joining the lock
+queue for good.
+"""
+```
+
+The docstring says what this adapter is: the lesson's three changes, each the naive way and the safe way. The safe versions run the repository's migration files. Anything that needs a strong lock sets a short `lock_timeout` in the file and is retried here, so a busy table makes the migration wait politely instead of joining the lock queue for good.
+
+`src/locks_lab/infrastructure/schema_changes.py`, lines 13 to 13:
+
+```python
+from collections.abc import Callable, Iterable
+```
+
+`Callable` is the type of a function and `Iterable` the type of anything that can be looped over; both are used only in type hints.
+
+`src/locks_lab/infrastructure/schema_changes.py`, lines 17 to 45:
+
+```python
+import psycopg
+from psycopg import errors
+
+from ..domain.backfill import id_ranges
+from ..domain.errors import LockWaitTimeoutError, UnknownMigrationError
+from ..domain.lesson import DEVICE_INDEX
+from ..domain.locks import LockReport
+from ..domain.outcomes import InterruptedBuild, RebuiltIndex
+from .logging import fields
+from .postgres import scalar, session
+from .retry import retry
+from .settings import PostgresSettings
+from .sql_script import run_file
+
+logger = logging.getLogger(__name__)
+LOCK_RETRIES = 10
+
+
+def migration_file(sql_dir: Path, number: int, *, down: bool = False) -> Path:
+    """The migration whose file name starts with the number (the down script when `down`)."""
+    folder = sql_dir / "migrations" / ("down" if down else "")
+    matches = sorted(folder.glob(f"{number:03d}_*.sql"))
+    if not matches:
+        raise UnknownMigrationError(f"there is no {'down ' if down else ''}migration {number}")
+    return matches[0]
+
+
+class PostgresSchemaChanges:
+    """Applies the lesson's changes to the events table."""
+```
+
+Reading from the top: `psycopg` is the PostgreSQL driver and `errors` holds its named error classes (for example, the one raised when a lock wait times out). The `..domain` imports bring in `id_ranges` (the batches for the backfill), two lab errors, the name of the device index, the lock report type and the two outcome types. `.logging.fields`, `.postgres.scalar` and `.postgres.session`, `.retry.retry` (the retry helper, explained with its tests above), `PostgresSettings` and `run_file` are the infrastructure helpers. `logger` is this module's logger and `LOCK_RETRIES = 10` is how many times a change that hit its lock timeout is tried before giving up.
+
+The function `migration_file(sql_dir, number, *, down=False)` finds a migration by its number. The bare `*` in the parameter list means that everything after it must be passed by name, so a call reads `migration_file(dir, 3, down=True)`. The folder is `sql/migrations` or, for a down script, `sql/migrations/down`: the expression `"down" if down else ""` picks the folder name and the `/` operator joins path parts. `folder.glob(f"{number:03d}_*.sql")` lists files whose names start with the number padded to three digits (`003_`) and end in `.sql`; `sorted(...)` makes the order predictable. An empty list raises `UnknownMigrationError` with a message built to read either `there is no migration 7` or `there is no down migration 7`. Otherwise the first match is returned.
+
+The class header and constructor that follow store the connection settings and the SQL folder on the object.
+
+`src/locks_lab/infrastructure/schema_changes.py`, lines 83 to 83:
+
+```python
+        return self.apply(1)
+```
+
+`add_flagged_column` is migration 1: it calls `self.apply(1)`, which runs the numbered script with its retries.
+
+`src/locks_lab/infrastructure/schema_changes.py`, lines 105 to 105:
+
+```python
+            return int(scalar(connection, "SELECT count(*) FROM events WHERE flagged IS NULL"))
+```
+
+`unflagged_rows` counts the rows whose `flagged` value is still NULL, using `scalar` to get the single number; `int(...)` converts it to a Python integer.
+
+##### `lab_table.py`, the top of the file
+
+`src/locks_lab/infrastructure/lab_table.py`, lines 1 to 1:
+
+```python
+"""Adapter: the events table as a whole. Implements `LabTable`."""
+```
+
+The adapter for the events table as a whole.
+
+`src/locks_lab/infrastructure/lab_table.py`, lines 5 to 9:
+
+```python
+from psycopg import errors
+
+from ..domain.errors import LockWaitTimeoutError
+from ..domain.outcomes import TableSize
+from .postgres import scalar, session
+```
+
+`errors` holds the driver's named error classes. `LockWaitTimeoutError` is the lab's own error for a lock wait that timed out. `TableSize` is the value that holds the table's size text and its number of dead row versions. `scalar` and `session` are the connection helpers.
+
+`src/locks_lab/infrastructure/lab_table.py`, lines 13 to 20:
+
+```python
+_RESET_STATEMENTS = (
+    "DROP INDEX IF EXISTS idx_events_device_created",
+    "DROP INDEX IF EXISTS idx_events_naive",
+    "ALTER TABLE events DROP CONSTRAINT IF EXISTS flagged_not_null",
+    "ALTER TABLE events DROP COLUMN IF EXISTS flagged",
+    "ALTER TABLE events DROP COLUMN IF EXISTS scratch",
+    "ALTER TABLE events DROP COLUMN IF EXISTS conflict_probe",
+    "DROP STATISTICS IF EXISTS events_region_city",
+```
+
+`_RESET_STATEMENTS` is a tuple of the statements that return the table to its seed state, in order: drop the two indexes the lesson builds, drop the helper constraint, drop the three columns the lesson adds, and drop the extended statistics object. Every statement says `IF EXISTS`, so the reset works whatever state the previous experiment left. The leading underscore marks the name as private to the module.
+
+##### `load_runner.py`, the top of the file
+
+`src/locks_lab/infrastructure/load_runner.py`, lines 1 to 6:
+
+```python
+"""Adapter: the lesson's load script. Implements `LoadGenerator`.
+
+Steady inserts, updates on recently inserted rows and reads of recent events, paced to a fixed rate over a few
+connections, with a one-second reporter. Every statement has a timeout, so a lock pile-up shows as errors and
+high latencies instead of a hung program.
+"""
+```
+
+The docstring: the load script is steady inserts, updates on recently inserted rows and reads of recent events, paced to a fixed rate over a few connections, with a one-second reporter. Every statement has a timeout, so a lock pile-up shows as errors and high latencies instead of a hung program.
+
+`src/locks_lab/infrastructure/load_runner.py`, lines 10 to 10:
+
+```python
+import collections
+```
+
+`collections` provides specialised containers such as the `deque` (a list that is fast to add to and remove from at both ends).
+
+`src/locks_lab/infrastructure/load_runner.py`, lines 18 to 18:
+
+```python
+from types import TracebackType
+```
+
+`TracebackType` is the type of the traceback object that Python hands to `__exit__`, used only in a type hint.
+
+`src/locks_lab/infrastructure/load_runner.py`, lines 23 to 26:
+
+```python
+from ..domain.stats import Sample, Tick, WindowSummary, make_tick, summarize
+from .logging import fields
+from .postgres import connect
+from .settings import LoadSettings, PostgresSettings
+```
+
+The domain types for measurements (`Sample`, `Tick`, `WindowSummary` and the functions `make_tick` and `summarize`), the logging helper, the `connect` function and the two settings classes.
+
+##### `lock_experiments.py`, the top of the file
+
+`src/locks_lab/infrastructure/lock_experiments.py`, lines 1 to 1:
+
+```python
+"""Adapter: the experiments that need a second session holding a lock. Implements `LockExperiments`."""
+```
+
+The docstring: the experiments that need a second session holding a lock.
+
+`src/locks_lab/infrastructure/lock_experiments.py`, lines 11 to 17:
+
+```python
+from psycopg import errors
+from psycopg.rows import dict_row
+
+from ..domain.locks import LockRequest, LockSnapshot, WaitingSession
+from ..domain.outcomes import ConflictOutcome, QueueOutcome
+from .logging import fields
+from .postgres import connect
+```
+
+`errors` holds the driver's error classes. `dict_row` makes the driver return each row as a dictionary keyed by column name instead of a tuple, which makes the lock views easier to read. The domain imports bring in the lock types and the two outcome types. `fields` attaches key and value pairs to log lines and `connect` opens a connection.
+
+`src/locks_lab/infrastructure/lock_experiments.py`, lines 52 to 53:
+
+```python
+class PostgresLockExperiments:
+    """A long read-only transaction (session A), a naive ALTER and a safe ALTER, each on its own connection."""
+```
+
+The end of the function that builds a snapshot: it returns a `LockSnapshot` made of the waiting sessions and the lock queue. Then the class `PostgresLockExperiments` begins, with a docstring that names its three actors: a long read-only transaction (session A), a naive ALTER and a safe ALTER, each on its own connection.
+
+##### `plan_flip.py`, the top of the file
+
+`src/locks_lab/infrastructure/plan_flip.py`, lines 1 to 1:
+
+```python
+"""Adapter: the plan regression and its fix. Implements `PlanFlipLab`."""
+```
+
+The docstring: the plan regression and its fix.
+
+`src/locks_lab/infrastructure/plan_flip.py`, lines 7 to 11:
+
+```python
+from ..domain.lesson import EXTENDED_STATISTICS, FLIP_PLANS
+from ..domain.outcomes import FlipOutcome
+from .postgres import scalar, session
+from .settings import PostgresSettings
+from .sql_script import run_file
+```
+
+`EXTENDED_STATISTICS` and `FLIP_PLANS` come from the lesson data (the statistics statement and the three plan names). `FlipOutcome` is the result type. `scalar` and `session` are the connection helpers; `PostgresSettings` holds the connection details; `run_file` runs an SQL file.
+
+##### `health_probes.py`, the top of the file
+
+`src/locks_lab/infrastructure/health_probes.py`, lines 1 to 1:
+
+```python
+"""Adapter: the health check of the one dependency, PostgreSQL."""
+```
+
+The docstring: the health check of the one dependency, PostgreSQL.
+
+`src/locks_lab/infrastructure/health_probes.py`, lines 7 to 8:
+
+```python
+from ..application.health import ProbeFailedError
+from .postgres import scalar, session
+```
+
+`ProbeFailedError` is the lab's own error for "this dependency is not usable". `scalar` and `session` are the connection helpers.
+
 ## Try it yourself
 
 1. `.venv/bin/python -c "from locks_lab.domain.backfill import id_ranges; print(list(id_ranges(1, 5, 2)))"` prints `[(1, 2), (3, 4), (5, 5)]`.

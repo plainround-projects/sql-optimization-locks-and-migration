@@ -255,6 +255,95 @@ COMMIT;
 
 The naive file adds a scratch column with a default, sets it `NOT NULL` (the scan under a strong lock) and drops it; the file runs the three statements in sequence. `reset.sql` drops both tables in one transaction (`CASCADE` also drops what depends on them).
 
+### The remaining SQL files, line by line
+
+Every file below is a plain SQL script. A line that starts with two hyphens (`--`) is a **comment**: text for the reader, ignored by PostgreSQL. A statement ends at a semicolon. Two features recur. `BEGIN;` starts a transaction (a group of statements that either all take effect or none does) and `COMMIT;` ends it and makes it permanent. `SET LOCAL lock_timeout = '2s';` sets, for this transaction only, how long a statement may wait to get a lock before PostgreSQL cancels it with an error. That limit is what keeps a migration out of the lock queue: without it, a statement that needs an exclusive lock would wait behind a long transaction and block everything that arrives after it.
+
+#### The "down" migrations
+
+`sql/migrations/down/001_add_flagged_column.down.sql`, lines 1 to 6:
+
+```sql
+-- Undo migration 001. Dropping a column is metadata-only; the lock_timeout keeps it out of the lock queue.
+-- Safe to run twice.
+BEGIN;
+SET LOCAL lock_timeout = '2s';
+ALTER TABLE events DROP COLUMN IF EXISTS flagged;
+COMMIT;
+```
+
+Undoes migration 001, which added the `flagged` column. `ALTER TABLE events DROP COLUMN IF EXISTS flagged;` removes the column if it exists. Dropping a column in PostgreSQL only marks it as dropped in the catalog and does not rewrite the table, so it is quick, but it still needs an exclusive lock for that instant, which is why the transaction sets `lock_timeout` first. `IF EXISTS` makes it safe to run twice.
+
+`sql/migrations/down/002_backfill_flagged_batch.down.sql`, lines 1 to 6:
+
+```sql
+-- Undo one backfill batch: put NULL back. Run by hand: psql -v first_id=1 -v last_id=2000 < this file.
+-- Safe to run twice.
+BEGIN;
+SET LOCAL lock_timeout = '2s';
+UPDATE events SET flagged = NULL WHERE id BETWEEN :first_id AND :last_id AND flagged IS NOT NULL;
+COMMIT;
+```
+
+Undoes one batch of the backfill by putting NULL back. The variables `:first_id` and `:last_id` are `psql` variables set on the command line with `-v` (the first comment line shows the call), and `psql` replaces them before sending the statement. `BETWEEN a AND b` is inclusive at both ends. The extra condition `flagged IS NOT NULL` skips rows that are already NULL, so running the script twice updates nothing the second time and creates no needless dead row versions.
+
+`sql/migrations/down/003_index_device_created_concurrently.down.sql`, lines 1 to 2:
+
+```sql
+-- Undo migration 003 without blocking writes. Cannot run in a transaction. Safe to run twice.
+DROP INDEX CONCURRENTLY IF EXISTS idx_events_device_created;
+```
+
+Undoes migration 003 by dropping the index with `DROP INDEX CONCURRENTLY`, which waits for running transactions instead of blocking writes. PostgreSQL does not allow this form inside a transaction block, so the file has no `BEGIN` and `COMMIT`, as the comment says.
+
+`sql/migrations/down/004_flagged_check_not_valid.down.sql`, lines 1 to 5:
+
+```sql
+-- Undo migration 004. Safe to run twice.
+BEGIN;
+SET LOCAL lock_timeout = '2s';
+ALTER TABLE events DROP CONSTRAINT IF EXISTS flagged_not_null;
+COMMIT;
+```
+
+Undoes migration 004 by dropping the helper constraint `flagged_not_null`, in a transaction with a lock timeout. `IF EXISTS` again makes it safe to repeat.
+
+`sql/migrations/down/005_validate_flagged_check.down.sql`, lines 1 to 3:
+
+```sql
+-- Migration 005 only checks existing rows; a constraint cannot be un-validated. To go back past it, run the
+-- down script of 004, which drops the constraint. This file exists so every migration has a down path.
+SELECT 'nothing to undo: run down/004 to drop the constraint' AS note;
+```
+
+Migration 005 only checks existing rows against a constraint; there is nothing to undo, because a constraint cannot be turned back into an unvalidated one. The file exists so that every migration has a down path, and its only statement is a `SELECT` of a text value, shown with the column name `note`, that tells the person to run the down script of 004 instead.
+
+#### The explain scripts
+
+`EXPLAIN (ANALYZE, BUFFERS)` runs the query for real and prints the plan with the measured times (`ANALYZE`) and the number of 8 kilobyte pages touched (`BUFFERS`). `SET timezone = 'UTC';` makes the session read and print timestamps in UTC so that every machine gives the same text.
+
+`sql/explain/f2_after_analyze.sql`, lines 1 to 4:
+
+```sql
+-- Step 6 after ANALYZE: per-column statistics know both values, but still multiply the two selectivities as if region and city were independent.
+SET timezone = 'UTC';
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT id, created_at FROM events WHERE region = 'pacific' AND city = 'seattle' ORDER BY created_at DESC LIMIT 100;
+```
+
+Step 6 after a plain `ANALYZE` (the command that collects the table's statistics). The comment explains the point: the per-column statistics know how common `region = 'pacific'` is and how common `city = 'seattle'` is, but the planner multiplies the two fractions as if the columns were independent, and in this data the city determines the region, so the estimate is still far too low. `ORDER BY created_at DESC LIMIT 100` asks for the newest hundred.
+
+`sql/explain/f3_after_extended_statistics.sql`, lines 1 to 4:
+
+```sql
+-- Step 6 after CREATE STATISTICS (dependencies, mcv) on (region, city) and ANALYZE: the planner knows the pair, and the estimate matches.
+SET timezone = 'UTC';
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT id, created_at FROM events WHERE region = 'pacific' AND city = 'seattle' ORDER BY created_at DESC LIMIT 100;
+```
+
+The same query after `CREATE STATISTICS` with the kinds `dependencies` and `mcv` on the pair `(region, city)` and a new `ANALYZE`. A `dependencies` statistic records that one column determines another, and `mcv` records the most common value pairs, so the planner now knows the pair and its estimate matches the real row count.
+
 ## Try it yourself
 
 (After `make up db`; `P="docker compose exec -T db psql -X -q -U lab -d lab"`.)
