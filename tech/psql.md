@@ -70,7 +70,7 @@ reset: ## drop the lab's tables (make db rebuilds them)
 	$(PSQL) < sql/reset.sql
 ```
 
-`$(PSQL) < sql/001_schema.sql` etc. feed the files. The second line adds `-v rows=$(ROWS)`: `-v name=value` defines a psql **variable** `rows` (default `2000000`). `make db` stops at the first error because of `ON_ERROR_STOP`.
+`$(PSQL) < sql/001_schema.sql`, `$(PSQL) < sql/002_seed.sql` and `$(PSQL) < sql/003_queries.sql` feed the three files in that order. The second line adds `-v rows=$(ROWS)`: `-v name=value` defines a psql **variable** `rows` (default `2000000`). `make db` stops at the first error because of `ON_ERROR_STOP`.
 
 ### Variables, conditionals and `\gexec` in the seed
 

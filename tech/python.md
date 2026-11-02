@@ -856,7 +856,7 @@ class ReplayLesson:
 ```
 
 - `__init__` takes only keyword-only arguments; `closing_seconds: int = 20` has a default.
-- `run()` is the lesson, in order: `_step(...)` announces and labels each stage; `self._table.reset()` puts the table back to the seed; `self._load.measure(self._baseline_seconds)` lets the load run alone; `self._scenarios.lock_queue(self._load)` and so on. `queue.snapshot.format()` is saved as `lock_queue.txt`; `for name, lines in flip.lines.items(): self._store.save_plan(name, lines)` saves the three plans. The final `closing` baseline brackets the changes. Then `LessonResult(...)` is built with keyword arguments and `render_results` makes the notes.
+- `run()` is the lesson, in order: `_step(...)` announces and labels each stage; `self._table.reset()` puts the table back to the seed; `self._load.measure(self._baseline_seconds)` lets the load run alone; `self._scenarios.lock_queue(self._load)` runs the lock queue experiment, and the same pattern follows for the safe migration, the plain and the concurrent index build, the naive and the three-move NOT NULL, and the plan flip. `queue.snapshot.format()` is saved as `lock_queue.txt`; `for name, lines in flip.lines.items(): self._store.save_plan(name, lines)` saves the three plans. The final `closing` baseline brackets the changes. Then `LessonResult(...)` is built with keyword arguments and `render_results` makes the notes.
 - `_step(label)` raises `LessonInterruptedError` if `should_stop()` is true, otherwise reports progress and writes the label into the load's per-second record (`self._load.mark(label)`), so a spike in `load-metrics.jsonl` can be matched to the step that caused it.
 
 ### `application/report.py`
