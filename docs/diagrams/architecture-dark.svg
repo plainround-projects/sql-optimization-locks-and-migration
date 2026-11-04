@@ -64,12 +64,12 @@ text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',mo
 <rect class="svc" x="48" y="164" width="232" height="116" rx="12"/>
 <text class="name" x="64" y="196">Load script</text>
 <text class="sub" x="64" y="220">ThreadedLoad</text>
-<text class="sub" x="64" y="242">40 iterations a second,</text>
-<text class="sub" x="64" y="264">120 operations a second</text>
+<text class="sub" x="64" y="242">40 iterations/s,</text>
+<text class="sub" x="64" y="264">120 operations/s</text>
 <rect class="svc" x="48" y="312" width="232" height="100" rx="12"/>
 <text class="name" x="64" y="344">Long transaction</text>
 <text class="sub" x="64" y="368">lock_experiments.py</text>
-<text class="sub" x="64" y="390">BEGIN; SELECT, no commit</text>
+<text class="sub" x="64" y="390">open read, no commit</text>
 <rect class="svc" x="48" y="460" width="232" height="108" rx="12"/>
 <text class="name" x="64" y="492">Migration</text>
 <text class="sub" x="64" y="516">schema_changes.py</text>
