@@ -59,6 +59,8 @@ erDiagram
 
 ## Data flow of one run (`make run`, or `make measure` with the lesson's ten-minute baseline)
 
+Drawn versions of this figure and of the walk-through: [the architecture](docs/diagrams/architecture.svg) and [one run](docs/diagrams/flow.svg).
+
 ```mermaid
 flowchart LR
     load["Load script<br/>insert, update, read"] -->|"steady traffic"| events[("events table")]

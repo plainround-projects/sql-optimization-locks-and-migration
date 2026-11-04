@@ -4,6 +4,24 @@ A busy PostgreSQL 18 table under constant read and write load from a script, and
 
 This repository is the runnable build of the Plainround lesson **"Change a huge busy table without blocking it"** (`/prep/sql-optimization/project-locks-and-migration`, planned at **14 hours**). It uses PostgreSQL, the engine the lesson names for the lock experiments.
 
+## Architecture
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.svg">
+  <img alt="A load script, a long transaction and a migration all reach the events table in PostgreSQL 18. The long transaction holds ACCESS SHARE, the migration needs ACCESS EXCLUSIVE and waits for it in amber, and the load queues behind the migration. Statistics are sampled from events by ANALYZE." src="docs/diagrams/architecture.svg">
+</picture>
+
+Notice that the migration never blocks anything on its own: it waits behind session A, and every write waits behind the migration.
+
+## How one run flows
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/flow-dark.svg">
+  <img alt="One make run in seven steps. The load keeps running while a naive ALTER queues behind a long read in amber, then the safe migration, the index, NOT NULL in three moves and the plan flip run without a stall." src="docs/diagrams/flow.svg">
+</picture>
+
+The amber row is step 2, the lock queue; the green box is the closing verdict that p99 stayed within twice the baseline.
+
 ## What is in it
 
 | Piece | Where |
